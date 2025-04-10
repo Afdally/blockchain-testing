@@ -1,0 +1,6 @@
+
+//untuk mendaftarkan suatu node ke node yang lain 
+curl -X POST -H "Content-Type: application/json" -d "{\"nodeUrl\":\"http://localhost:3001\"}" http://localhost:3000/register-
+
+//untuk menjalankan node dengan port berbede
+set NODE_NAME=validator1&& set PORT=3001&& node app.js

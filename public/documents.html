@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dokumen - Blockchain</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/socket-handler.js"></script>
+</head>
+
+<body>
+  <nav aria-label="Main navigation">
+    <div class="logo">BlockDoc</div>
+    <div class="nav-menu">
+      <a href="/">Home</a>
+      <a href="/documents">Lihat Dokumen</a>
+      <a href="/verify">Verifikasi</a>
+      <a href="/network">Jaringan</a>
+    </div>
+  </nav>
+
+  <header>
+    <div class="header-content">
+      <h1>Sistem Validasi Dokumen Blockchain</h1>
+      <p>Keamanan dan Keaslian Dokumen dengan Teknologi Blockchain</p>
+    </div>
+  </header>
+
+  <div class="container">
+    <div class="network-header">
+      <h2>Jaringan Blockchain Dokumen</h2>
+      <div class="network-controls">
+        <button onclick="refreshChain()">Refresh Rantai</button>
+        <button onclick="syncNodes()">Sinkronisasi Node</button>
+      </div>
+    </div>
+
+    <div class="node-selector">
+      <select id="nodeList" onchange="loadNodeChain(this.value)">
+        <option value="">Pilih Node...</option>
+      </select>
+    </div>
+
+    <div id="chainDisplay"></div>
+  </div>
+
+  <script>
+    // Fungsi untuk memuat daftar node
+    function loadNodes() {
+      fetch('/nodes')
+        .then(response => response.json())
+        .then(nodes => {
+          const select = document.getElementById('nodeList');
+          nodes.forEach(node => {
+            const option = document.createElement('option');
+            option.value = node;
+            option.textContent = node;
+            select.appendChild(option);
+          });
+        });
+    }
+
+    // Fungsi untuk memuat rantai dari node tertentu
+    function loadNodeChain(nodeUrl) {
+      fetch(`/proxy?url=${nodeUrl}/blocks`)
+        .then(response => response.json())
+        .then(chain => {
+          renderChain(chain);
+        });
+    }
+
+    // Panggil saat halaman dimuat
+    loadNodes();
+  </script>
+</body>
+
+</html>
