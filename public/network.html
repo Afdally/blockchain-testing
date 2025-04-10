@@ -79,7 +79,8 @@
         <div class="card">
             <div class="form-group">
                 <input type="text" id="nodeUrl" placeholder="http://ip:port">
-                <button style="margin-top: 30px;" class="btn btn-verify" onclick="registerNode()">Tambahkan Node</button>
+                <button style="margin-top: 30px;" class="btn btn-verify" onclick="registerNode()">Tambahkan
+                    Node</button>
             </div>
             <h2>Daftar Node Terhubung</h2>
             <div id="nodes">
@@ -174,12 +175,17 @@
             });
 
         // Daftarkan node baru
+        // Di network.html - Tambahkan validasi:
         function registerNode() {
-            const nodeUrl = document.getElementById('nodeUrl').value;
-            if (!nodeUrl) return;
+            const nodeUrl = document.getElementById('nodeUrl').value.trim();
 
-            socket.emit('register-node', { nodeUrl }); // 👈 Tambahkan ini
-            document.getElementById('nodeUrl').value = '';
+            // Validasi format URL
+            if (!/^https?:\/\//.test(nodeUrl)) {
+                showErrorToast('Format URL tidak valid! Contoh: http://192.168.1.2:3000');
+                return;
+            }
+
+            socket.emit('register-node', { nodeUrl });
         }
 
         socket.on('network_update', (nodes) => {
