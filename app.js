@@ -300,6 +300,7 @@ io.on("connection", (socket) => {
   });
 
   // Handle new node registration
+  // Di app.js - Ganti handler ini:
   socket.on("register-node", (nodeUrl) => {
     if (!NETWORK_NODES.has(nodeUrl)) {
       NETWORK_NODES.add(nodeUrl);
@@ -309,13 +310,13 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Handle register_node event from network.html
-  socket.on("register_node", (data) => {
+  // Menjadi:
+  socket.on("register-node", (data) => {
     const nodeUrl = data.nodeUrl;
-    if (!NETWORK_NODES.has(nodeUrl)) {
+    if (nodeUrl && !NETWORK_NODES.has(nodeUrl)) {
       NETWORK_NODES.add(nodeUrl);
-      console.log(`[SOCKET] Node registered via UI: ${nodeUrl}`);
-      io.emit("node-registered", nodeUrl);
+      console.log(`[SOCKET] Node registered: ${nodeUrl}`);
+      io.emit("node-registered", nodeUrl); // 👈 Gunakan io.emit bukan socket.broadcast
       io.emit("network_update", Array.from(NETWORK_NODES));
     }
   });
@@ -739,6 +740,14 @@ app.get("/nodes", (req, res) => {
     nodes: Array.from(NETWORK_NODES),
   });
 });
+// Tambahkan di app.js (server)
+app.get("/ping", (req, res) => {
+  res.json({
+    status: "online",
+    node: NODE_NAME,
+    timestamp: Date.now(),
+  });
+});
 
 // Mulai server
 server.listen(port, async () => {
@@ -771,10 +780,28 @@ server.listen(port, async () => {
       });
 
       socket.on("node-registered", (nodeUrl) => {
+        // 1. Tambahkan validasi URL
+        if (typeof nodeUrl !== "string" || !nodeUrl.startsWith("http")) {
+          console.error("[ERROR] Invalid node URL:", nodeUrl);
+          return;
+        }
+
+        // 2. Update jaringan dan broadcast ke semua node
         if (!NETWORK_NODES.has(nodeUrl)) {
           NETWORK_NODES.add(nodeUrl);
-          console.log(`[SOCKET] New node registered in network: ${nodeUrl}`);
+
+          // 3. Sync ke semua client
+          io.emit("network_update", Array.from(NETWORK_NODES));
+
+          // 4. Log lebih informatif
+          console.log(`[NETWORK] Node baru terdaftar: ${nodeUrl}`);
+          console.log(`[NETWORK] Total node: ${NETWORK_NODES.size}`);
         }
+
+        // 5. Paksa sinkronisasi blockchain
+        docChain.resolveConflicts().then(() => {
+          console.log("[SYNC] Blockchain updated after new node");
+        });
       });
 
       socket.on("new-block", (blockData) => {
