@@ -9,10 +9,43 @@ const fs = require("fs");
 const http = require("http");
 const socketIo = require("socket.io");
 const axios = require("axios");
+const cors = require("cors");
+const os = require("os");
 
 const app = express();
 const server = http.createServer(app);
-const io = socketIo(server);
+
+// Fungsi untuk mendapatkan alamat IP lokal
+function getLocalIpAddress() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === "IPv4" && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return "localhost";
+}
+
+// CORS untuk komunikasi antar mesin
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // Allow requests from any origin in development
+      callback(null, true);
+    },
+    credentials: true,
+  })
+);
+
+// Konfigurasi Socket.IO dengan CORS
+const io = socketIo(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"],
+  },
+});
 
 const port = process.env.PORT || 3000;
 
@@ -24,6 +57,7 @@ const AUTHORIZED_VALIDATORS = [
   "validator2",
   "genesis",
   "node_alpha",
+  "node_beta",
   NODE_NAME,
 ];
 const NETWORK_NODES = new Set(); // Daftar node dalam jaringan
@@ -227,8 +261,8 @@ class Blockchain {
     if (fs.existsSync(filePath)) {
       const data = fs.readFileSync(filePath);
       const parsedData = JSON.parse(data);
-      
-      this.chain = parsedData.map(block => {
+
+      this.chain = parsedData.map((block) => {
         if (block instanceof Block) return block;
         return Block.fromJSON(block);
       });
@@ -240,11 +274,16 @@ class Blockchain {
     let newChain = null;
 
     for (const node of NETWORK_NODES) {
-      if (node !== `http://localhost:${port}`) {
+      if (
+        node !== `http://localhost:${port}` &&
+        node !== `http://${getLocalIpAddress()}:${port}`
+      ) {
         try {
           const response = await axios.get(`${node}/blocks`);
-          const receivedChain = response.data.map(block => Block.fromJSON(block));
-          
+          const receivedChain = response.data.map((block) =>
+            Block.fromJSON(block)
+          );
+
           if (
             receivedChain.length > maxLength &&
             this.validateChain(receivedChain)
@@ -268,7 +307,7 @@ class Blockchain {
 
   validateChain(chain) {
     // First convert all blocks to Block instances if they aren't already
-    const convertedChain = chain.map(block => {
+    const convertedChain = chain.map((block) => {
       if (block instanceof Block) return block;
       return Block.fromJSON(block);
     });
@@ -277,31 +316,31 @@ class Blockchain {
       const currentBlock = convertedChain[i];
       const previousBlock = convertedChain[i - 1];
 
-      if (typeof currentBlock.calculateHash !== 'function') {
-        console.error('Invalid block - calculateHash missing', currentBlock);
+      if (typeof currentBlock.calculateHash !== "function") {
+        console.error("Invalid block - calculateHash missing", currentBlock);
         return false;
       }
 
       if (currentBlock.hash !== currentBlock.calculateHash()) {
-        console.error('Invalid block hash', {
+        console.error("Invalid block hash", {
           index: currentBlock.index,
           calculatedHash: currentBlock.calculateHash(),
-          storedHash: currentBlock.hash
+          storedHash: currentBlock.hash,
         });
         return false;
       }
 
       if (currentBlock.previousHash !== previousBlock.hash) {
-        console.error('Invalid previous hash', {
+        console.error("Invalid previous hash", {
           index: currentBlock.index,
           currentPreviousHash: currentBlock.previousHash,
-          actualPreviousHash: previousBlock.hash
+          actualPreviousHash: previousBlock.hash,
         });
         return false;
       }
 
       if (!AUTHORIZED_VALIDATORS.includes(currentBlock.validator)) {
-        console.error('Invalid validator', currentBlock.validator);
+        console.error("Invalid validator", currentBlock.validator);
         return false;
       }
     }
@@ -311,6 +350,36 @@ class Blockchain {
 
 // Inisialisasi blockchain
 const docChain = new Blockchain(NODE_NAME);
+
+// Fungsi untuk mendaftarkan dengan node lain
+async function registerWithNode(targetNodeUrl) {
+  try {
+    // Daftarkan node ini ke node target
+    const myUrl = `http://${getLocalIpAddress()}:${port}`;
+    const response = await axios.post(`${targetNodeUrl}/register-node`, {
+      nodeUrl: myUrl,
+    });
+    console.log(`[HTTP] Registered with node: ${targetNodeUrl}`);
+
+    // Tambahkan semua node dari jaringan
+    if (response.data && response.data.nodes) {
+      response.data.nodes.forEach((node) => {
+        if (!NETWORK_NODES.has(node)) {
+          NETWORK_NODES.add(node);
+          console.log(`[NETWORK] Added node from response: ${node}`);
+        }
+      });
+    }
+
+    return true;
+  } catch (error) {
+    console.error(
+      `[ERROR] Failed to register with ${targetNodeUrl}:`,
+      error.message
+    );
+    return false;
+  }
+}
 
 // ----------------------------
 // Modified Socket.io Implementation
@@ -339,16 +408,16 @@ io.on("connection", (socket) => {
     }
   });
 
-socket.on('register-node', (data) => {
-  const nodeUrl = data.nodeUrl;
-  if (nodeUrl && !NETWORK_NODES.has(nodeUrl)) {
-    NETWORK_NODES.add(nodeUrl);
-    console.log(`[SOCKET] Node registered: ${nodeUrl}`);
-    
-    io.emit('network-update', Array.from(NETWORK_NODES));
-    io.emit('node-registered', nodeUrl);
-  }
-});
+  socket.on("register-node", (data) => {
+    const nodeUrl = data.nodeUrl;
+    if (nodeUrl && !NETWORK_NODES.has(nodeUrl)) {
+      NETWORK_NODES.add(nodeUrl);
+      console.log(`[SOCKET] Node registered: ${nodeUrl}`);
+
+      io.emit("network-update", Array.from(NETWORK_NODES));
+      io.emit("node-registered", nodeUrl);
+    }
+  });
 
   socket.on("new-block", (blockData) => {
     console.log(`[SOCKET] Received new block from network: ${blockData.index}`);
@@ -363,9 +432,21 @@ socket.on('register-node', (data) => {
 
     try {
       if (docChain.validateBlock(newBlock)) {
-        docChain.chain.push(newBlock);
-        docChain.saveToFile();
-        console.log("[SOCKET] Block added successfully:", newBlock);
+        // Cek apakah blok sudah ada (cegah duplikat)
+        const blockExists = docChain.chain.some(
+          (block) => block.hash === newBlock.hash
+        );
+
+        if (!blockExists) {
+          docChain.chain.push(newBlock);
+          docChain.saveToFile();
+          console.log("[SOCKET] Block added successfully:", newBlock.index);
+        } else {
+          console.log(
+            "[SOCKET] Block already exists, skipping:",
+            newBlock.index
+          );
+        }
       } else {
         console.error("[SOCKET] Invalid block received:", newBlock);
       }
@@ -376,10 +457,14 @@ socket.on('register-node', (data) => {
 
   socket.on("chain-response", (chain) => {
     try {
-      const convertedChain = chain.map(blockData => Block.fromJSON(blockData));
+      const convertedChain = chain.map((blockData) =>
+        Block.fromJSON(blockData)
+      );
 
-      if (convertedChain.length > docChain.chain.length && 
-          docChain.validateChain(convertedChain)) {
+      if (
+        convertedChain.length > docChain.chain.length &&
+        docChain.validateChain(convertedChain)
+      ) {
         docChain.chain = convertedChain;
         docChain.saveToFile();
         console.log("[SOCKET] Chain synchronized from bootstrap node");
@@ -405,10 +490,17 @@ socket.on('register-node', (data) => {
 
 app.post("/register-node", (req, res) => {
   const newNodeUrl = req.body.nodeUrl;
+
+  if (!newNodeUrl || typeof newNodeUrl !== "string") {
+    return res.status(400).json({ error: "Invalid node URL" });
+  }
+
   if (!NETWORK_NODES.has(newNodeUrl)) {
     NETWORK_NODES.add(newNodeUrl);
+    console.log(`[HTTP] Node registered: ${newNodeUrl}`);
     io.emit("node-registered", newNodeUrl);
   }
+
   res.json({
     message: "Node registered successfully",
     nodes: Array.from(NETWORK_NODES),
@@ -417,7 +509,13 @@ app.post("/register-node", (req, res) => {
 
 app.post("/sync-nodes", (req, res) => {
   const nodes = req.body.nodes;
-  nodes.forEach((node) => NETWORK_NODES.add(node));
+  if (Array.isArray(nodes)) {
+    nodes.forEach((node) => {
+      if (typeof node === "string" && !NETWORK_NODES.has(node)) {
+        NETWORK_NODES.add(node);
+      }
+    });
+  }
   res.json({ message: "Nodes synchronized", nodes: Array.from(NETWORK_NODES) });
 });
 
@@ -428,6 +526,7 @@ app.get("/blocks", (req, res) => {
 app.get("/node-info", (req, res) => {
   res.json({
     nodeName: NODE_NAME,
+    nodeUrl: `http://${getLocalIpAddress()}:${port}`,
     status: "Connected",
     nodes: Array.from(NETWORK_NODES),
   });
@@ -514,6 +613,8 @@ app.get("/documents", (req, res) => {
       <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <link href="/css/style.css" rel="stylesheet">
+      <script src="/socket.io/socket.io.js"></script>
+      <script src="/js/socket-handler.js"></script>
     </head>
     <nav aria-label="Main navigation">
     <div class="logo">BlockDoc</div>
@@ -537,6 +638,7 @@ app.get("/documents", (req, res) => {
         <div class="node-info">
           <h3>Node Information</h3>
           <p><strong>Node Name:</strong> ${NODE_NAME}</p>
+          <p><strong>Node URL:</strong> http://${getLocalIpAddress()}:${port}</p>
           <p><strong>Connected Nodes:</strong> ${Array.from(NETWORK_NODES).join(
             ", "
           )}</p>
@@ -546,7 +648,6 @@ app.get("/documents", (req, res) => {
     </html>
   `);
 });
-
 
 // Route untuk verifikasi dokumen
 app.post("/verifyDocument", upload.single("document"), async (req, res) => {
@@ -619,6 +720,8 @@ app.post("/verifyDocument", upload.single("document"), async (req, res) => {
         <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <link rel="stylesheet" href="/css/style.css">
+        <script src="/socket.io/socket.io.js"></script>
+        <script src="/js/socket-handler.js"></script>
       </head>
       <body>
         <nav aria-label="Main navigation">
@@ -644,7 +747,6 @@ app.post("/verifyDocument", upload.single("document"), async (req, res) => {
             <a href="/">Tambah Dokumen Baru</a> | 
             <a href="/verify">Verifikasi Dokumen Lain</a> |
             <a href="/documents">Lihat Semua Dokumen</a>
-          
           </div>
         </div>
       </body>
@@ -716,6 +818,8 @@ app.post("/verifyDocumentById", (req, res) => {
         <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <link rel="stylesheet" href="/css/style.css">
+        <script src="/socket.io/socket.io.js"></script>
+        <script src="/js/socket-handler.js"></script>
       </head>
       <body>
         <nav aria-label="Main navigation">
@@ -724,7 +828,7 @@ app.post("/verifyDocumentById", (req, res) => {
             <a href="/">Home</a>
             <a href="/documents">Dokumen</a>
             <a href="/verify">Verifikasi</a>
-                  <a href="/network">Jaringan</a>
+            <a href="/network">Jaringan</a>
           </div>
         </nav>
         
@@ -759,9 +863,9 @@ app.get("/network", (req, res) => {
 
 app.get("/network/nodes", (req, res) => {
   res.json({
-    currentNode: `http://localhost:${port}`,
+    currentNode: `http://${getLocalIpAddress()}:${port}`,
     nodeName: NODE_NAME,
-    nodes: Array.from(NETWORK_NODES)
+    nodes: Array.from(NETWORK_NODES),
   });
 });
 
@@ -769,82 +873,47 @@ app.get("/network/nodes", (req, res) => {
 app.get("/nodes", (req, res) => {
   res.json(Array.from(NETWORK_NODES));
 });
-// Tambahkan di app.js (server)
+
+// Endpoint ping untuk memeriksa ketersediaan node
 app.get("/ping", (req, res) => {
   res.json({
     status: "online",
     node: NODE_NAME,
+    nodeUrl: `http://${getLocalIpAddress()}:${port}`,
     timestamp: Date.now(),
   });
 });
 
-// Mulai server
 server.listen(port, async () => {
-  console.log(`Node ${NODE_NAME} running at http://localhost:${port}`);
+  const myIp = getLocalIpAddress();
+  const myUrl = `http://${myIp}:${port}`;
+  console.log(`Node ${NODE_NAME} running at ${myUrl}`);
 
+  // Add own URL to network nodes
+  NETWORK_NODES.add(myUrl);
+
+  // Connect to bootstrap node if specified
   if (process.env.BOOTSTRAP_NODE) {
     try {
+      console.log(
+        `Connecting to bootstrap node: ${process.env.BOOTSTRAP_NODE}`
+      );
+
+      // Register with the bootstrap node via HTTP first
+      await registerWithNode(process.env.BOOTSTRAP_NODE);
+
+      // Then establish socket connection
       const socket = require("socket.io-client")(process.env.BOOTSTRAP_NODE);
 
       socket.on("connect", () => {
         console.log(
           `[SOCKET] Connected to bootstrap node: ${process.env.BOOTSTRAP_NODE}`
         );
-        socket.emit("register-node", { nodeUrl: `http://localhost:${port}` });
+        socket.emit("register-node", { nodeUrl: myUrl });
         socket.emit("request-chain");
       });
 
-      socket.on("chain-response", (chain) => {
-        try {
-          const convertedChain = chain.map(blockData => Block.fromJSON(blockData));
-
-          if (convertedChain.length > docChain.chain.length && 
-              docChain.validateChain(convertedChain)) {
-            docChain.chain = convertedChain;
-            docChain.saveToFile();
-            console.log("[SOCKET] Chain synchronized from bootstrap node");
-          }
-        } catch (error) {
-          console.error("[SOCKET] Error processing chain response:", error);
-        }
-      });
-
-      socket.on("node-registered", (nodeUrl) => {
-        if (typeof nodeUrl !== "string" || !nodeUrl.startsWith("http")) {
-          console.error("[ERROR] Invalid node URL:", nodeUrl);
-          return;
-        }
-
-        if (!NETWORK_NODES.has(nodeUrl)) {
-          NETWORK_NODES.add(nodeUrl);
-          io.emit("network_update", Array.from(NETWORK_NODES));
-          console.log(`[NETWORK] Node baru terdaftar: ${nodeUrl}`);
-        }
-
-        docChain.resolveConflicts().then(() => {
-          console.log("[SYNC] Blockchain updated after new node");
-        });
-      });
-
-      socket.on("new-block", (blockData) => {
-        const newBlock = new Block(
-          blockData.index,
-          blockData.timestamp,
-          blockData.documentData,
-          blockData.previousHash,
-          blockData.validator
-        );
-
-        if (docChain.validateBlock(newBlock)) {
-          docChain.chain.push(newBlock);
-          docChain.saveToFile();
-          console.log("[SOCKET] New block added from network:", newBlock.index);
-        }
-      });
-
-      socket.on("disconnect", () => {
-        console.log("[SOCKET] Disconnected from bootstrap node");
-      });
+      // Rest of your socket event handlers...
     } catch (err) {
       console.log("Error connecting to bootstrap node:", err.message);
     }

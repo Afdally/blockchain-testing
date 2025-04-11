@@ -9,36 +9,19 @@
   },
   {
     "index": 1,
-    "timestamp": 1744369741557,
+    "timestamp": 1744371683960,
     "documentData": {
-      "documentId": "testing",
-      "title": "res",
-      "issuer": "s",
-      "recipient": "ss",
-      "issueDate": "0111-11-11",
-      "documentHash": "aadb65dad8289686e0481910bdc7d47f58cce14d2672d122f837aa50d6a6a730",
-      "filePath": "edfb5b9bc6f007766ace2ce2f04cecaa:c1a5a2b3c1ff71082b6ea3a4e57a14cd763e71b45ff701b1243cc6ff2651c16cc9dd7387a444192844710286b086930c28504b6606a2bb7aac734d0c2498098bf23a8b4b9f981ead5ba0694be2aa825ad80866b7d2fe3748e5c6ac02f48689f45cdb9408846fbaa46d85138460185bc380b9728030b303fcded630cad0478ce19c74fdbae33a7aaa7aae165322f5ef86be6e29fdde9da165363a07c755f83504",
+      "documentId": "fsff",
+      "title": "da",
+      "issuer": "das",
+      "recipient": "da",
+      "issueDate": "0001-11-11",
+      "documentHash": "0bcb56b39b3d581e514c1e315457997a68a8c39a87bebf2e25aa6336f8c31c47",
+      "filePath": "45e7386b444e955c7c4cccf47af236e9:8b0a05ad0864cb461c7ed6a01ea157553ee75813b1c792584809000481dfeec402e82d6a145c7943fd110796a6b4f3d7843350f876074b2b83d6f879b95751291bf0a2b1363f22c3d7694e0951699d43e74123180dcaea86b7fff0bc04c2744fdc9fddb70736c1f7eeda308e523589832d54c9785387ab921ca860acfcf1ead28ea538137b027f6cd0fec4e2c8a420c0b43414ac04bc0eed0d14bd8220bc4961",
       "verificationStatus": true
     },
     "previousHash": "336fe6e44b2744e618e0315ef1cc974fb9b52482905d580cb6f35c6c7885cd6f",
-    "validator": "node_beta",
-    "hash": "563afe7716a63760ceb0a632c60a8785f362dbc03477072e03e514a3da22b1f5"
-  },
-  {
-    "index": 2,
-    "timestamp": 1744369754095,
-    "documentData": {
-      "documentId": "rea",
-      "title": "sad",
-      "issuer": "da",
-      "recipient": "da",
-      "issueDate": "0001-11-11",
-      "documentHash": "004bba42bb3510a7c2785242c1151dc121b423b6d713d077d01f0b8895234384",
-      "filePath": "a518591010318dfd96e764404302f0dd:caaa744d024cfbba9085963b86c9ad1c7e3153ea90e58682617227e3ba14cc362621f0f4eec69eeeb18e123ee77ec73505c41ccf86c94c2a30c8e9a7e31e6b0c890f67b1a158687814a2caec3c9984b3a0e8482f9b0b734e0c87f04bb6eb0218131e7d6eecb2854b151039f3c675c00d11f8ba5e40dfa47519989850a72b9b3b",
-      "verificationStatus": true
-    },
-    "previousHash": "563afe7716a63760ceb0a632c60a8785f362dbc03477072e03e514a3da22b1f5",
     "validator": "node_alpha",
-    "hash": "38560c3895225718a34a2d9483715f9f45ac2768037c965106537d821f5d2e76"
+    "hash": "7fe48e61853afc48571140e261e13de55249eab88f7b0f791894e2435bf5bcbf"
   }
 ]
