@@ -8,6 +8,7 @@ const multer = require("multer");
 const fs = require("fs");
 const http = require("http");
 const socketIo = require("socket.io");
+const axios = require("axios");
 
 const app = express();
 const server = http.createServer(app);
@@ -22,6 +23,7 @@ const AUTHORIZED_VALIDATORS = [
   "validator1",
   "validator2",
   "genesis",
+  "node_alpha",
   NODE_NAME,
 ];
 const NETWORK_NODES = new Set(); // Daftar node dalam jaringan
@@ -121,6 +123,16 @@ class Block {
       )
       .digest("hex");
   }
+
+  static fromJSON(json) {
+    return new Block(
+      json.index,
+      json.timestamp,
+      json.documentData,
+      json.previousHash,
+      json.validator
+    );
+  }
 }
 
 class Blockchain {
@@ -214,16 +226,12 @@ class Blockchain {
     );
     if (fs.existsSync(filePath)) {
       const data = fs.readFileSync(filePath);
-      this.chain = JSON.parse(data).map(
-        (block) =>
-          new Block(
-            block.index,
-            block.timestamp,
-            block.documentData,
-            block.previousHash,
-            block.validator
-          )
-      );
+      const parsedData = JSON.parse(data);
+      
+      this.chain = parsedData.map(block => {
+        if (block instanceof Block) return block;
+        return Block.fromJSON(block);
+      });
     }
   }
 
@@ -235,12 +243,14 @@ class Blockchain {
       if (node !== `http://localhost:${port}`) {
         try {
           const response = await axios.get(`${node}/blocks`);
+          const receivedChain = response.data.map(block => Block.fromJSON(block));
+          
           if (
-            response.data.length > maxLength &&
-            this.validateChain(response.data)
+            receivedChain.length > maxLength &&
+            this.validateChain(receivedChain)
           ) {
-            maxLength = response.data.length;
-            newChain = response.data;
+            maxLength = receivedChain.length;
+            newChain = receivedChain;
           }
         } catch (err) {
           console.error(`Error checking node ${node}:`, err.message);
@@ -257,13 +267,43 @@ class Blockchain {
   }
 
   validateChain(chain) {
-    for (let i = 1; i < chain.length; i++) {
-      const currentBlock = chain[i];
-      const previousBlock = chain[i - 1];
+    // First convert all blocks to Block instances if they aren't already
+    const convertedChain = chain.map(block => {
+      if (block instanceof Block) return block;
+      return Block.fromJSON(block);
+    });
 
-      if (currentBlock.hash !== currentBlock.calculateHash()) return false;
-      if (currentBlock.previousHash !== previousBlock.hash) return false;
-      if (!AUTHORIZED_VALIDATORS.includes(currentBlock.validator)) return false;
+    for (let i = 1; i < convertedChain.length; i++) {
+      const currentBlock = convertedChain[i];
+      const previousBlock = convertedChain[i - 1];
+
+      if (typeof currentBlock.calculateHash !== 'function') {
+        console.error('Invalid block - calculateHash missing', currentBlock);
+        return false;
+      }
+
+      if (currentBlock.hash !== currentBlock.calculateHash()) {
+        console.error('Invalid block hash', {
+          index: currentBlock.index,
+          calculatedHash: currentBlock.calculateHash(),
+          storedHash: currentBlock.hash
+        });
+        return false;
+      }
+
+      if (currentBlock.previousHash !== previousBlock.hash) {
+        console.error('Invalid previous hash', {
+          index: currentBlock.index,
+          currentPreviousHash: currentBlock.previousHash,
+          actualPreviousHash: previousBlock.hash
+        });
+        return false;
+      }
+
+      if (!AUTHORIZED_VALIDATORS.includes(currentBlock.validator)) {
+        console.error('Invalid validator', currentBlock.validator);
+        return false;
+      }
     }
     return true;
   }
@@ -299,29 +339,17 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Handle new node registration
-  // Di app.js - Ganti handler ini:
-  socket.on("register-node", (nodeUrl) => {
-    if (!NETWORK_NODES.has(nodeUrl)) {
-      NETWORK_NODES.add(nodeUrl);
-      console.log(`[SOCKET] Node registered: ${nodeUrl}`);
-      socket.broadcast.emit("node-registered", nodeUrl);
-      io.emit("network_update", Array.from(NETWORK_NODES));
-    }
-  });
+socket.on('register-node', (data) => {
+  const nodeUrl = data.nodeUrl;
+  if (nodeUrl && !NETWORK_NODES.has(nodeUrl)) {
+    NETWORK_NODES.add(nodeUrl);
+    console.log(`[SOCKET] Node registered: ${nodeUrl}`);
+    
+    io.emit('network-update', Array.from(NETWORK_NODES));
+    io.emit('node-registered', nodeUrl);
+  }
+});
 
-  // Menjadi:
-  socket.on("register-node", (data) => {
-    const nodeUrl = data.nodeUrl;
-    if (nodeUrl && !NETWORK_NODES.has(nodeUrl)) {
-      NETWORK_NODES.add(nodeUrl);
-      console.log(`[SOCKET] Node registered: ${nodeUrl}`);
-      io.emit("node-registered", nodeUrl); // 👈 Gunakan io.emit bukan socket.broadcast
-      io.emit("network_update", Array.from(NETWORK_NODES));
-    }
-  });
-
-  // Handle block reception
   socket.on("new-block", (blockData) => {
     console.log(`[SOCKET] Received new block from network: ${blockData.index}`);
 
@@ -346,31 +374,35 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Handle chain synchronization request
+  socket.on("chain-response", (chain) => {
+    try {
+      const convertedChain = chain.map(blockData => Block.fromJSON(blockData));
+
+      if (convertedChain.length > docChain.chain.length && 
+          docChain.validateChain(convertedChain)) {
+        docChain.chain = convertedChain;
+        docChain.saveToFile();
+        console.log("[SOCKET] Chain synchronized from bootstrap node");
+      }
+    } catch (error) {
+      console.error("[SOCKET] Error processing chain response:", error);
+    }
+  });
+
   socket.on("request-chain", () => {
     socket.emit("chain-response", docChain.chain);
   });
 
-  // Handle disconnection
   socket.on("disconnect", () => {
     console.log(`[SOCKET] Client disconnected: ${socket.id}`);
     activeConnections.delete(socket.id);
   });
 });
 
-// Add a new API endpoint for node data
-app.get("/api/nodes", (req, res) => {
-  res.json({
-    currentNode: `http://${req.socket.localAddress}:${port}`,
-    nodeName: NODE_NAME,
-    nodes: Array.from(NETWORK_NODES),
-  });
-});
 // ----------------------------
 // Enhanced Routes
 // ----------------------------
 
-// Registrasi node
 app.post("/register-node", (req, res) => {
   const newNodeUrl = req.body.nodeUrl;
   if (!NETWORK_NODES.has(newNodeUrl)) {
@@ -383,19 +415,16 @@ app.post("/register-node", (req, res) => {
   });
 });
 
-// Sinkronisasi node
 app.post("/sync-nodes", (req, res) => {
   const nodes = req.body.nodes;
   nodes.forEach((node) => NETWORK_NODES.add(node));
   res.json({ message: "Nodes synchronized", nodes: Array.from(NETWORK_NODES) });
 });
 
-// Endpoint untuk mendapatkan semua blok
 app.get("/blocks", (req, res) => {
   res.json(docChain.chain);
 });
 
-// Endpoint untuk mendapatkan info node
 app.get("/node-info", (req, res) => {
   res.json({
     nodeName: NODE_NAME,
@@ -404,12 +433,10 @@ app.get("/node-info", (req, res) => {
   });
 });
 
-// Tambahkan route untuk halaman verify
 app.get("/verify", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "verify.html"));
 });
 
-// Upload dan validasi dokumen baru
 app.post("/addDocument", upload.single("document"), async (req, res) => {
   try {
     const { documentId, title, issuer, recipient, issueDate } = req.body;
@@ -419,10 +446,8 @@ app.post("/addDocument", upload.single("document"), async (req, res) => {
       return res.status(400).send("No file uploaded");
     }
 
-    // Enkripsi path file
     const encryptedPath = encryptData(uploadedFile.path);
 
-    // Buat record dokumen baru
     const record = {
       documentId,
       title,
@@ -434,7 +459,6 @@ app.post("/addDocument", upload.single("document"), async (req, res) => {
       verificationStatus: true,
     };
 
-    // Tambahkan block baru ke blockchain
     const newBlock = new Block(
       docChain.chain.length,
       Date.now(),
@@ -451,12 +475,11 @@ app.post("/addDocument", upload.single("document"), async (req, res) => {
   }
 });
 
-// Tampilkan semua dokumen
 app.get("/documents", (req, res) => {
   let documentsHTML = `<h2>Blockchain Document Records (Node: ${NODE_NAME})</h2>`;
 
   docChain.chain.forEach((block, i) => {
-    if (i === 0) return; // Skip genesis block
+    if (i === 0) return;
 
     const decryptedPath = decryptData(block.documentData.filePath);
     const fileExists = fs.existsSync(decryptedPath);
@@ -523,6 +546,7 @@ app.get("/documents", (req, res) => {
     </html>
   `);
 });
+
 
 // Route untuk verifikasi dokumen
 app.post("/verifyDocument", upload.single("document"), async (req, res) => {
@@ -733,12 +757,17 @@ app.get("/network", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "network.html"));
 });
 
+app.get("/network/nodes", (req, res) => {
+  res.json({
+    currentNode: `http://localhost:${port}`,
+    nodeName: NODE_NAME,
+    nodes: Array.from(NETWORK_NODES)
+  });
+});
+
 // Endpoint untuk mendapatkan daftar node
 app.get("/nodes", (req, res) => {
-  res.json({
-    nodeName: NODE_NAME,
-    nodes: Array.from(NETWORK_NODES),
-  });
+  res.json(Array.from(NETWORK_NODES));
 });
 // Tambahkan di app.js (server)
 app.get("/ping", (req, res) => {
@@ -753,7 +782,6 @@ app.get("/ping", (req, res) => {
 server.listen(port, async () => {
   console.log(`Node ${NODE_NAME} running at http://localhost:${port}`);
 
-  // Otomatis konek ke bootstrap node jika ada
   if (process.env.BOOTSTRAP_NODE) {
     try {
       const socket = require("socket.io-client")(process.env.BOOTSTRAP_NODE);
@@ -762,43 +790,37 @@ server.listen(port, async () => {
         console.log(
           `[SOCKET] Connected to bootstrap node: ${process.env.BOOTSTRAP_NODE}`
         );
-        socket.emit("register-node", `http://localhost:${port}`);
-
-        // Minta chain saat pertama kali terhubung
+        socket.emit("register-node", { nodeUrl: `http://localhost:${port}` });
         socket.emit("request-chain");
       });
 
       socket.on("chain-response", (chain) => {
-        if (
-          chain.length > docChain.chain.length &&
-          docChain.validateChain(chain)
-        ) {
-          docChain.chain = chain;
-          docChain.saveToFile();
-          console.log("[SOCKET] Chain synchronized from bootstrap node");
+        try {
+          const convertedChain = chain.map(blockData => Block.fromJSON(blockData));
+
+          if (convertedChain.length > docChain.chain.length && 
+              docChain.validateChain(convertedChain)) {
+            docChain.chain = convertedChain;
+            docChain.saveToFile();
+            console.log("[SOCKET] Chain synchronized from bootstrap node");
+          }
+        } catch (error) {
+          console.error("[SOCKET] Error processing chain response:", error);
         }
       });
 
       socket.on("node-registered", (nodeUrl) => {
-        // 1. Tambahkan validasi URL
         if (typeof nodeUrl !== "string" || !nodeUrl.startsWith("http")) {
           console.error("[ERROR] Invalid node URL:", nodeUrl);
           return;
         }
 
-        // 2. Update jaringan dan broadcast ke semua node
         if (!NETWORK_NODES.has(nodeUrl)) {
           NETWORK_NODES.add(nodeUrl);
-
-          // 3. Sync ke semua client
           io.emit("network_update", Array.from(NETWORK_NODES));
-
-          // 4. Log lebih informatif
           console.log(`[NETWORK] Node baru terdaftar: ${nodeUrl}`);
-          console.log(`[NETWORK] Total node: ${NETWORK_NODES.size}`);
         }
 
-        // 5. Paksa sinkronisasi blockchain
         docChain.resolveConflicts().then(() => {
           console.log("[SYNC] Blockchain updated after new node");
         });
