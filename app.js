@@ -204,8 +204,13 @@ class Blockchain {
       hash: block.hash,
     };
 
-    io.emit("new-block", blockData);
-    console.log(`[SOCKET] Block ${block.index} broadcasted to network`);
+    // Broadcast ke semua node
+    NETWORK_NODES.forEach(node => {
+      const socket = require('socket.io-client')(node);
+      socket.emit('new-block', blockData);
+    });
+    
+    console.log(`[SOCKET] Block ${block.index} di-broadcast ke jaringan`);
   }
 
   saveToFile() {
@@ -339,14 +344,18 @@ io.on("connection", (socket) => {
     }
   });
 
+// Di dalam handler registrasi node
 socket.on('register-node', (data) => {
-  const nodeUrl = data.nodeUrl;
+  const { nodeUrl, nodeName } = data;
+  
   if (nodeUrl && !NETWORK_NODES.has(nodeUrl)) {
     NETWORK_NODES.add(nodeUrl);
-    console.log(`[SOCKET] Node registered: ${nodeUrl}`);
     
-    io.emit('network-update', Array.from(NETWORK_NODES));
-    io.emit('node-registered', nodeUrl);
+    // Tambahkan node ke validator
+    if (!AUTHORIZED_VALIDATORS.includes(nodeName)) {
+      AUTHORIZED_VALIDATORS.push(nodeName);
+      console.log(`[NETWORK] Validator baru ditambahkan: ${nodeName}`);
+    }
   }
 });
 
@@ -404,15 +413,20 @@ socket.on('register-node', (data) => {
 // ----------------------------
 
 app.post("/register-node", (req, res) => {
-  const newNodeUrl = req.body.nodeUrl;
-  if (!NETWORK_NODES.has(newNodeUrl)) {
-    NETWORK_NODES.add(newNodeUrl);
-    io.emit("node-registered", newNodeUrl);
+  const { nodeUrl, nodeName } = req.body;
+  
+  if (nodeUrl && !NETWORK_NODES.has(nodeUrl)) {
+    NETWORK_NODES.add(nodeUrl);
+    
+    // Update validator
+    if (!AUTHORIZED_VALIDATORS.includes(nodeName)) {
+      AUTHORIZED_VALIDATORS.push(nodeName);
+    }
+    
+    io.emit("node-registered", nodeUrl);
   }
-  res.json({
-    message: "Node registered successfully",
-    nodes: Array.from(NETWORK_NODES),
-  });
+  
+  res.json({ status: "success" });
 });
 
 app.post("/sync-nodes", (req, res) => {
@@ -809,22 +823,39 @@ server.listen(port, async () => {
         }
       });
 
-      socket.on("node-registered", (nodeUrl) => {
-        if (typeof nodeUrl !== "string" || !nodeUrl.startsWith("http")) {
-          console.error("[ERROR] Invalid node URL:", nodeUrl);
-          return;
-        }
+      // Di dalam handler event 'node-registered'
+socket.on('node-registered', (nodeUrl) => {
+  if (typeof nodeUrl !== "string" || !nodeUrl.startsWith("http")) return;
 
-        if (!NETWORK_NODES.has(nodeUrl)) {
-          NETWORK_NODES.add(nodeUrl);
-          io.emit("network_update", Array.from(NETWORK_NODES));
-          console.log(`[NETWORK] Node baru terdaftar: ${nodeUrl}`);
+  if (!NETWORK_NODES.has(nodeUrl)) {
+    NETWORK_NODES.add(nodeUrl);
+    console.log(`[NETWORK] Node terdaftar: ${nodeUrl}`);
+    
+    // Hubungkan ke node baru
+    const newNodeSocket = require('socket.io-client')(nodeUrl);
+    
+    newNodeSocket.on('connect', () => {
+      console.log(`[SOCKET] Terhubung ke node: ${nodeUrl}`);
+      
+      // Listen untuk block baru
+      newNodeSocket.on('new-block', (blockData) => {
+        const newBlock = new Block(
+          blockData.index,
+          blockData.timestamp,
+          blockData.documentData,
+          blockData.previousHash,
+          blockData.validator
+        );
+        
+        if (docChain.validateBlock(newBlock)) {
+          docChain.chain.push(newBlock);
+          docChain.saveToFile();
+          console.log(`[SOCKET] Blok baru diterima dari ${nodeUrl}: ${newBlock.index}`);
         }
-
-        docChain.resolveConflicts().then(() => {
-          console.log("[SYNC] Blockchain updated after new node");
-        });
       });
+    });
+  }
+});
 
       socket.on("new-block", (blockData) => {
         const newBlock = new Block(
