@@ -1,64 +1,123 @@
-<!DOCTYPE html>
-<html lang="id">
-
-<head>
-    <meta charset="UTF-8">
-    <title>Manajemen Jaringan</title>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/style.css">
-    <script src="/socket.io/socket.io.js"></script>
-    <script src="/js/socket-handler.js"></script>
+    <!DOCTYPE html>
+    <html lang="id">
+    
+    <head>
+        <meta charset="UTF-8">
+        <title>Manajemen Jaringan</title>
+        <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="css/style.css">
+        <script src="/socket.io/socket.io.js"></script>
+        <script src="/js/socket-handler.js"></script>
+        <!-- Tambahkan di bagian head -->
     <style>
         .network-container {
-            max-width: 800px;
-            margin: 20px auto;
-            padding: 20px;
+          max-width: 800px;
+          margin: 20px auto;
+          padding: 20px;
         }
-
+      
         .node-form {
-            background: #f5f5f5;
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
+          background: #f5f5f5;
+          padding: 20px;
+          border-radius: 8px;
+          margin-bottom: 20px;
         }
-
+      
         .node-list {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+          background: white;
+          padding: 20px;
+          border-radius: 8px;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
-
+      
         .node-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 10px;
-            border-bottom: 1px solid #eee;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 12px;
+          border-bottom: 1px solid #eee;
+          transition: background-color 0.2s;
         }
-
+      
+        .node-item:hover {
+          background-color: #f9f9f9;
+        }
+      
+        .node-info {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+      
         .status-dot {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background: #ccc;
-            /* Default: abu-abu */
+          width: 12px;
+          height: 12px;
+          border-radius: 50%;
+          background: #ccc;
         }
-
+      
         .status-dot.online {
-            background: #4CAF50;
+          background: #4CAF50;
         }
-
+      
         .status-dot.offline {
-            background: #FF5722;
+          background: #FF5722;
         }
-    </style>
-    <!-- Include the shared socket handler first -->
-    <script src="/socket.io/socket.io.js"></script>
-    <script src="/js/socket-handler.js"></script>
-</head>
-
-<body>
-    <nav aria-label="Main navigation">
+      
+        .current-node {
+          font-weight: bold;
+          color: #2196F3;
+        }
+      
+        .toast {
+          position: fixed;
+          bottom: 20px;
+          right: 20px;
+          padding: 12px 24px;
+          background: #4CAF50;
+          color: white;
+          border-radius: 4px;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+          z-index: 1000;
+          opacity: 0;
+          transition: opacity 0.3s;
+        }
+      
+        .toast.show {
+          opacity: 1;
+        }
+      
+        .toast.error {
+          background: #FF5722;
+        }
+      
+        .input-group {
+          display: flex;
+          gap: 10px;
+          margin-bottom: 15px;
+        }
+      
+        .input-group input {
+          flex: 1;
+          padding: 10px;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+        }
+      
+        .input-group button {
+          padding: 10px 20px;
+          background: #2196F3;
+          color: white;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+        }
+      
+        .input-group button:hover {
+          background: #0b7dda;
+        }
+      </style>
+      <nav aria-label="Main navigation">
         <div class="logo">BlockDoc</div>
         <div class="nav-menu">
             <a href="/">Home</a>
@@ -73,138 +132,139 @@
             <h1>Manajemen Node Jaringan</h1>
         </div>
     </header>
-
-    <div class="container">
-        <h2>Tambah Node Baru</h2>
-        <div class="card">
-            <div class="form-group">
-                <input type="text" id="nodeUrl" placeholder="http://ip:port">
-                <button style="margin-top: 30px;" class="btn btn-verify" onclick="registerNode()">Tambahkan
-                    Node</button>
-            </div>
-            <h2>Daftar Node Terhubung</h2>
-            <div id="nodes">
-                <!-- Template node item -->
-                <div class="node-item">
-                    <span class="node-url"></span>
-                    <span class="status-dot"></span>
+        <div class="container">
+            <div class="card">
+                <h3>Tambah Node Baru</h3>
+                <div class="input-group">
+                  <input type="text" id="nodeHost" placeholder="Host (contoh: localhost atau 192.168.1.10)" required>
+                  <input type="number" id="nodePort" placeholder="Port (contoh: 3000)" min="1" max="65535" required>
+                  <button onclick="registerNode()">Tambahkan Node</button>
                 </div>
-            </div>
+                
+                <div id="connection-status" class="status-info"></div>
+                
+                <h3>Daftar Node Terhubung</h3>
+                <div id="nodes" class="node-list">
+                  <!-- Daftar node akan muncul di sini -->
+                </div>
+              </div>
         </div>
-        <div id="connection-status"></div>
-    </div>
-
-    <script>
-
-        // network.html - Tambah fungsi ini
-        function showErrorToast(message) {
-            Toastify({
-                text: message,
-                duration: 3000,
-                backgroundColor: "linear-gradient(to right, #ff416c, #ff4b2b)",
-            }).showToast();
+        
+      </div>
+      
+      <div id="toast" class="toast"></div>
+      
+      <script>
+        // Fungsi untuk menampilkan toast notification
+        function showToast(message, isError = false) {
+          const toast = document.getElementById('toast');
+          toast.textContent = message;
+          toast.className = isError ? 'toast error show' : 'toast show';
+          
+          setTimeout(() => {
+            toast.classList.remove('show');
+          }, 3000);
         }
-
-        function showSuccessToast(message) {
-            Toastify({
-                text: message,
-                duration: 3000,
-                backgroundColor: "linear-gradient(to right, #00b09b, #96c93d)",
-            }).showToast();
+      
+        // Fungsi untuk memeriksa status node
+        async function checkNodeStatus(url) {
+          try {
+            const response = await fetch(`${url}/ping`);
+            return response.ok;
+          } catch (error) {
+            return false;
+          }
         }
-
-        // Panggil saat registrasi berhasil
-        socket.on('node_registered', (url) => {
-            showSuccessToast(`Node ${url} berhasil ditambahkan!`);
-        });
-
-        let currentNode = '';
-
-        // Use the shared socket connection
-        const socket = window.appSocket;
-
-        // Show connection status
-        function updateConnectionStatus() {
-            const statusElement = document.getElementById('connection-status');
-            if (socket.connected) {
-                statusElement.innerHTML = '<p style="color: green;">Status: Terhubung</p>';
-            } else {
-                statusElement.innerHTML = '<p style="color: red;">Status: Terputus</p>';
-            }
+      
+        // Fungsi untuk menambahkan node baru
+        async function registerNode() {
+          const host = document.getElementById('nodeHost').value.trim();
+          const port = document.getElementById('nodePort').value.trim();
+          
+          if (!host || !port) {
+            showToast('Harap isi host dan port', true);
+            return;
+          }
+          
+          const nodeUrl = `http://${host}:${port}`;
+          
+          // Validasi URL
+          try {
+            new URL(nodeUrl);
+          } catch (e) {
+            showToast('Format URL tidak valid', true);
+            return;
+          }
+          
+          // Kirim ke server via WebSocket
+          socket.emit('register_node', { nodeUrl });
+          
+          // Kosongkan input
+          document.getElementById('nodeHost').value = '';
+          document.getElementById('nodePort').value = '';
         }
-
-        async function checkNodeStatus(url, statusDot) {
-            try {
-                const response = await fetch(`${url}/ping`);
-                statusDot.classList.toggle('online', response.ok);
-                statusDot.classList.toggle('offline', !response.ok);
-            } catch {
-                statusDot.classList.add('offline');
-            }
-        }
-
-        // Update status on connect/disconnect events
-        socket.on('connect', updateConnectionStatus);
-        socket.on('disconnect', updateConnectionStatus);
-
-        // Initial status update
-        document.addEventListener('DOMContentLoaded', updateConnectionStatus);
-
-        // Update daftar node
-        function updateNodeList(nodes) {
-            const container = document.getElementById('nodes');
-            container.innerHTML = '';
-
-            nodes.forEach(node => {
-                const nodeEl = document.createElement('div');
-                nodeEl.className = 'node-item';
-                nodeEl.innerHTML = `
-                    <div>${node}</div>
-                    <div>${node === currentNode ? '(Current)' : ''}</div>
-                `;
-                container.appendChild(nodeEl);
-            });
-        }
-
-        // Dapatkan info node saat pertama load
-        fetch('/api/nodes')
+      
+        // Fungsi untuk memperbarui daftar node
+        async function updateNodeList(nodes) {
+          const nodesContainer = document.getElementById('nodes');
+          nodesContainer.innerHTML = '';
+          
+          if (nodes.length === 0) {
+            nodesContainer.innerHTML = '<p>Tidak ada node terhubung</p>';
+            return;
+          }
+          
+          // Dapatkan URL node saat ini
+          const currentUrl = await fetch('/api/nodes')
             .then(res => res.json())
-            .then(data => {
-                currentNode = data.currentNode;
-                updateNodeList(data.nodes);
-            });
-
-        // Daftarkan node baru
-        // Di network.html - Tambahkan validasi:
-        function registerNode() {
-            const nodeUrl = document.getElementById('nodeUrl').value.trim();
-
-            // Validasi format URL
-            if (!/^https?:\/\//.test(nodeUrl)) {
-                showErrorToast('Format URL tidak valid! Contoh: http://192.168.1.2:3000');
-                return;
-            }
-
-            socket.emit('register-node', { nodeUrl });
+            .then(data => data.currentNode);
+          
+          for (const url of nodes) {
+            const isOnline = await checkNodeStatus(url);
+            const isCurrent = url === currentUrl;
+            
+            const nodeEl = document.createElement('div');
+            nodeEl.className = 'node-item';
+            
+            nodeEl.innerHTML = `
+              <div class="node-info">
+                <span class="status-dot ${isOnline ? 'online' : 'offline'}"></span>
+                <span class="${isCurrent ? 'current-node' : ''}">${url}</span>
+              </div>
+              <div>${isCurrent ? '(Node ini)' : ''}</div>
+            `;
+            
+            nodesContainer.appendChild(nodeEl);
+          }
         }
-
-        socket.on('network_update', (nodes) => {
-            const nodesContainer = document.getElementById('nodes');
-            nodesContainer.innerHTML = '';
-
-            nodes.forEach(url => {
-                const nodeEl = document.createElement('div');
-                nodeEl.className = 'node-item';
-                nodeEl.innerHTML = `
-      <span class="node-url">${url}</span>
-      <span class="status-dot"></span>
-    `;
-                nodesContainer.appendChild(nodeEl);
-
-                checkNodeStatus(url, nodeEl.querySelector('.status-dot'));
-            });
+      
+        // Inisialisasi saat halaman dimuat
+        document.addEventListener('DOMContentLoaded', async () => {
+          // Dapatkan daftar node awal
+          const nodes = await fetch('/nodes')
+            .then(res => res.json())
+            .then(data => data.nodes);
+          
+          updateNodeList(nodes);
+          
+          // Perbarui status koneksi
+          updateConnectionStatus();
         });
-    </script>
-</body>
-
-</html>
+      
+        // Tanggapi pembaruan jaringan dari server
+        socket.on('network_update', (nodes) => {
+          updateNodeList(nodes);
+          showToast('Jaringan diperbarui');
+        });
+      
+        socket.on('node_registered', (url) => {
+          showToast(`Node ${url} berhasil ditambahkan`);
+        });
+      
+        socket.on('connect_error', () => {
+          showToast('Gagal terhubung ke server', true);
+        });
+      </script>
+    </body>
+    
+    </html>
